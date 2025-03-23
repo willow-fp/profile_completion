@@ -1,0 +1,209 @@
+<?php
+
+/**
+ * Implements hook_menu().
+ */
+function profile_completion_menu() {
+  $items = [];
+
+  // Admin page to configure the fields.
+  $items['admin/config/people/profile_completion'] = [
+    'title' => 'Profile Completion Settings',
+    'description' => 'Configure the fields to calculate profile completion.',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => ['profile_completion_settings_form'],
+    'access arguments' => ['administer site configuration'],
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'profile_completion.admin.inc',
+  ];
+
+  return $items;
+}
+
+/**
+ * Implements hook_block_info().
+ */
+function profile_completion_block_info() {
+  $blocks = [];
+
+  $blocks['profile_completion'] = [
+    'info' => t('Profile Completion'),
+    'cache' => BACKDROP_NO_CACHE,
+  ];
+
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_view().
+ */
+function profile_completion_block_view($delta = '') {
+  $block = [];
+
+  if ($delta == 'profile_completion') {
+    global $user;
+    $current_user = $user;
+
+    // Show the block only if the user is logged in.
+    if ($current_user->uid == 0) {
+      return $block;
+    }
+
+    // Determine the user whose profile is being viewed.
+    $viewed_user = menu_get_object('user');
+
+    // If not on a user page (e.g., /user/[uid]), assume it's the logged-in user's page.
+    if (!$viewed_user) {
+      $viewed_user = $current_user;
+    }
+
+    // Show the block only if the logged-in user is viewing their own profile.
+    if ($viewed_user->uid != $current_user->uid) {
+      return $block;
+    }
+
+    // Add the CSS file.
+    $module_path = backdrop_get_path('module', 'profile_completion');
+    backdrop_add_css($module_path . '/css/profile_completion.css', ['type' => 'file']);
+
+    // Calculate profile completion.
+    $completion_data = profile_completion_calculate($current_user);
+    $percentage = $completion_data['percentage'];
+    $is_complete = $percentage == 100;
+
+    // Determine the CSS class based on whether the profile is complete.
+    $classes = ['profile-completion-block'];
+    if ($is_complete) {
+      $classes[] = 'profile-completion-block--complete';
+    }
+
+    // Build the block content.
+    $content = '<div class="' . implode(' ', $classes) . '">';
+    $content .= '<strong>';
+    if ($is_complete) {
+      $content .= '<span class="profile-completion-icon">✔</span> ';
+    }
+    $content .= t('Your profile is @percentage% complete', ['@percentage' => $percentage]);
+    $content .= '</strong>';
+
+    // Add the progress bar.
+    $content .= '<div class="profile-completion-progress">';
+    $content .= '<div class="profile-completion-progress-bar" style="width: ' . $percentage . '%;"></div>';
+    $content .= '</div>';
+
+    if ($is_complete) {
+      $content .= '<p>' . t('Congratulations! Your profile is complete.') . '</p>';
+    } else {
+      $content .= '<p>' . t('Complete your profile to reach 100%.') . '</p>';
+      // Show the edit profile link only if not 100% complete.
+      $content .= '<a href="' . url('user/' . $current_user->uid . '/edit') . '">' . t('Edit my profile') . '</a>';
+    }
+    $content .= '</div>';
+
+    $block['subject'] = t('Profile Completion');
+    $block['content'] = $content;
+  }
+
+  return $block;
+}
+
+/**
+ * Calculates the profile completion percentage for a user.
+ *
+ * @param object $account
+ *   The user object whose profile is being evaluated.
+ *
+ * @return array
+ *   An array with the completion percentage and missing fields.
+ */
+function profile_completion_calculate($account) {
+  $completion = 0;
+  $missing_fields = [];
+
+  // Get the configured fields.
+  $configured_fields = config_get('profile_completion.settings', 'profile_completion_fields', []);
+
+  // Debug: Show configured fields.
+  if (function_exists('dpm') && module_exists('devel')) {
+    dpm($configured_fields, 'Debug: Configured fields');
+  }
+
+  if (empty($configured_fields)) {
+    return [
+      'percentage' => 0,
+      'missing_fields' => [t('No fields have been configured to calculate profile completion. Please contact the administrator.')],
+    ];
+  }
+
+  $total_fields = count($configured_fields);
+  $field_value = 100 / $total_fields; // Value per field.
+
+  // Load the full user to access their fields.
+  $account = user_load($account->uid);
+
+  foreach ($configured_fields as $field_name => $field_label) {
+    $is_field_filled = false;
+
+    // Check if the field is the profile picture or another custom field.
+    if ($field_name == 'user_picture') {
+      // User field: profile picture.
+      if (!empty($account->picture)) {
+        $is_field_filled = true;
+      }
+    } else {
+      // Custom field attached to the user.
+      $field_info = field_info_field($field_name);
+      if ($field_info) {
+        switch ($field_info['type']) {
+          case 'text':
+          case 'text_long':
+          case 'list_text':
+            if (!empty($account->$field_name['und'][0]['value'])) {
+              $is_field_filled = true;
+            }
+            break;
+
+          case 'taxonomy_term_reference':
+            if (!empty($account->$field_name['und'][0]['tid'])) {
+              $is_field_filled = true;
+            }
+            break;
+
+          case 'field_collection':
+            if (!empty($account->$field_name['und']) && count($account->$field_name['und']) >= 1) {
+              $is_field_filled = true;
+            }
+            break;
+
+          case 'file':
+          case 'image':
+            if (!empty($account->$field_name['und'][0]['fid'])) {
+              $is_field_filled = true;
+            }
+            break;
+
+          default:
+            // For other field types, check if there is any value.
+            if (!empty($account->$field_name['und'][0])) {
+              $is_field_filled = true;
+            }
+            break;
+        }
+      }
+    }
+
+    if ($is_field_filled) {
+      $completion += $field_value;
+    } else {
+      $missing_fields[] = $field_label;
+    }
+  }
+
+  // Round the percentage.
+  $completion = round($completion);
+
+  return [
+    'percentage' => $completion,
+    'missing_fields' => $missing_fields,
+  ];
+}
