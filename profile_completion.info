@@ -1,0 +1,4 @@
+name = Profile Completion
+description = Calculates and displays the percentage of completeness of the user profile.
+backdrop = 1.x
+package = Custom
