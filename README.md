@@ -10,11 +10,14 @@ A Backdrop CMS module that allows administrators to configure fields for calcula
 - **Motivational Messaging:** Encourages users to complete their profiles.
 - **Privacy:** Only visible to the user viewing their own profile.
 
+  ![image](https://github.com/user-attachments/assets/c2cb9b1f-967a-4bae-90a6-6aa4ac79bdc2)
+
 ## Requirements
 
 - Backdrop CMS 1.x
 
 ## Installation
+![image](https://github.com/user-attachments/assets/ed7a9976-2a18-42cd-a4f2-9297fab8f57d)
 
 1. Download the `profile_completion` module and extract it into your Backdrop modules directory (e.g., `/modules/profile_completion`).
 2. Enable the module at `admin/modules`.
